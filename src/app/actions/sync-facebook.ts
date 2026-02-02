@@ -1,7 +1,9 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { tasks } from "@trigger.dev/sdk/v3";
+import { tasks, runs } from "@trigger.dev/sdk/v3";
+import prisma from "@/lib/prisma";
+import { syncFacebookData } from "./facebook";
 
 export interface SyncResult {
   success: boolean;
@@ -14,24 +16,40 @@ export interface SyncResult {
 
 export async function triggerFacebookSync(): Promise<SyncResult> {
   try {
-    const { userId } = await auth();
+    const { userId: clerkUserId } = await auth();
 
-    if (!userId) {
+    if (!clerkUserId) {
       return { success: false, error: "Не авторизован" };
     }
 
-    console.log("🚀 Triggering facebook-sync-demo for user:", userId);
+    console.log("🚀 Starting Facebook sync for user:", clerkUserId);
 
-    // Trigger the Trigger.dev task
-    const handle = await tasks.trigger("facebook-sync-demo", {
-      userId,
+    // Find user in database by clerk_id
+    const dbUser = await prisma.users.findUnique({
+      where: { clerk_id: clerkUserId },
     });
 
-    console.log("✅ Task triggered, run ID:", handle.id);
+    if (!dbUser) {
+      console.error("❌ User not found in database for clerk_id:", clerkUserId);
+      return { success: false, error: "Пользователь не найден в базе данных" };
+    }
+
+    console.log("✅ Found user in database:", dbUser.id);
+    console.log("📊 User details:", {
+      id: dbUser.id,
+      email: dbUser.email,
+      clerk_id: dbUser.clerk_id,
+    });
+
+    // Use local sync function instead of Trigger.dev task
+    const result = await syncFacebookData();
+
+    console.log("✅ Sync completed:", result);
 
     return {
-      success: true,
-      runId: handle.id,
+      success: result.success,
+      syncedCount: result.campaignCount,
+      error: result.error,
     };
   } catch (error) {
     console.error("❌ Error triggering Facebook sync:", error);
@@ -46,16 +64,25 @@ export async function triggerFacebookSync(): Promise<SyncResult> {
 export async function checkSyncStatus(runId: string): Promise<{
   status: "PENDING" | "EXECUTING" | "COMPLETED" | "FAILED";
   output?: any;
+  error?: any;
 }> {
   try {
-    const run = await tasks.retrieve(runId);
+    const run = await runs.retrieve(runId);
+    
+    console.log("📊 Run details:", {
+      id: run.id,
+      status: run.status,
+      output: run.output,
+      error: run.error,
+    });
     
     return {
       status: run.status as any,
       output: run.output,
+      error: run.error,
     };
   } catch (error) {
     console.error("Error checking sync status:", error);
-    return { status: "FAILED" };
+    return { status: "FAILED", error: error instanceof Error ? error.message : "Unknown error" };
   }
 }

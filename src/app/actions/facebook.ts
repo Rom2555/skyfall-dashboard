@@ -387,9 +387,13 @@ export async function syncFacebookData(): Promise<{
     const allAccountsRes = await fetch(allAccountsUrl);
     const allAccountsJson = await allAccountsRes.json();
     
+    // Initialize variables with default values
+    let accountsList: any[] = [];
+    let accountsWithSpend: any[] = [];
+    
     if (allAccountsJson.data) {
       console.log("🧐 ========== ALL AD ACCOUNTS ==========");
-      const accountsList = allAccountsJson.data.map((acc: any) => ({
+      accountsList = allAccountsJson.data.map((acc: any) => ({
         id: acc.id,
         account_id: acc.account_id,
         name: acc.name,
@@ -401,7 +405,7 @@ export async function syncFacebookData(): Promise<{
       console.log("🧐 Found Ad Accounts:", JSON.stringify(accountsList, null, 2));
       
       // Log which accounts have spend
-      const accountsWithSpend = accountsList.filter((acc: any) => acc.amount_spent !== "$0.00");
+      accountsWithSpend = accountsList.filter((acc: any) => acc.amount_spent !== "$0.00");
       console.log(`🧐 Accounts with spend > $0: ${accountsWithSpend.length}`);
       if (accountsWithSpend.length > 0) {
         console.log("💰 Accounts WITH DATA:", JSON.stringify(accountsWithSpend, null, 2));
@@ -411,16 +415,24 @@ export async function syncFacebookData(): Promise<{
       console.log("⚠️ Could not fetch ad accounts list:", allAccountsJson.error?.message || "Unknown error");
     }
 
-    // 2. Find the ad account from DB
-    const tenant = await prisma.tenants.findFirst({
+    // 2. Find or create the tenant for this user
+    let tenant = await prisma.tenants.findFirst({
       where: { name: dbUser.email },
     });
 
     if (!tenant) {
-      return { success: false, campaignCount: 0, error: "Tenant not found" };
+      // Create tenant if it doesn't exist
+      tenant = await prisma.tenants.create({
+        data: {
+          name: dbUser.email,
+          plan: "trial",
+        },
+      });
+      console.log("✅ Created new tenant:", tenant.id);
     }
 
-    const adAccount = await prisma.ad_accounts.findFirst({
+    // Find or create ad account
+    let adAccount = await prisma.ad_accounts.findFirst({
       where: {
         tenant_id: tenant.id,
         platform: "facebook",
@@ -428,7 +440,23 @@ export async function syncFacebookData(): Promise<{
     });
 
     if (!adAccount?.external_account_id) {
-      return { success: false, campaignCount: 0, error: "Ad account not found in DB" };
+      // Create ad account if it doesn't exist
+      // Use the first account with spend from the list
+      const accountWithSpend = accountsWithSpend && accountsWithSpend.length > 0 ? accountsWithSpend[0] : accountsList[0];
+      
+      if (!accountWithSpend) {
+        return { success: false, campaignCount: 0, error: "No ad accounts found" };
+      }
+
+      adAccount = await prisma.ad_accounts.create({
+        data: {
+          tenant_id: tenant.id,
+          platform: "facebook",
+          external_account_id: accountWithSpend.id,
+          status: "active",
+        },
+      });
+      console.log("✅ Created new ad account:", adAccount.id);
     }
 
     const accountId = adAccount.external_account_id;
@@ -449,12 +477,6 @@ export async function syncFacebookData(): Promise<{
     const campaigns: FacebookCampaign[] = campaignsJson.data || [];
     console.log(`🔥 Facebook API Response Campaigns: ${campaigns.length}`);
 
-    if (campaigns.length === 0) {
-      console.log("⚠️ No campaigns found in this ad account. Check if correct account is selected!");
-      revalidatePath("/campaigns");
-      return { success: true, campaignCount: 0 };
-    }
-
     // 4. Fetch LIFETIME insights for all campaigns
     const insightsUrl = `https://graph.facebook.com/v19.0/${accountId}/insights?level=campaign&date_preset=maximum&fields=campaign_id,campaign_name,spend,clicks,impressions,cpc,ctr,actions&limit=500&access_token=${token}`;
     
@@ -471,15 +493,28 @@ export async function syncFacebookData(): Promise<{
       insightsMap.set(insight.campaign_id, insight);
     }
 
+    // Create a map for campaign names from insights
+    const campaignNamesFromInsights = new Map<string, string>();
+    for (const insight of insights) {
+      campaignNamesFromInsights.set(insight.campaign_id, insight.campaign_name);
+    }
+
     // 5. Upsert campaigns to database
     let syncedCount = 0;
 
-    for (const campaign of campaigns) {
-      const insight = insightsMap.get(campaign.id);
+    // First, process campaigns that have insights
+    for (const insight of insights) {
+      const campaignId = insight.campaign_id;
+      const campaignName = insight.campaign_name;
       
-      const spend = insight ? parseFloat(insight.spend) || 0 : 0;
-      const clicks = insight ? parseInt(insight.clicks) || 0 : 0;
-      const impressions = insight ? parseInt(insight.impressions) || 0 : 0;
+      // Find the campaign in the campaigns list to get status
+      const campaign = campaigns.find(c => c.id === campaignId);
+      const status = campaign?.effective_status === "ACTIVE" ? "active" : 
+                    campaign?.effective_status === "PAUSED" ? "paused" : "inactive";
+      
+      const spend = parseFloat(insight.spend) || 0;
+      const clicks = parseInt(insight.clicks) || 0;
+      const impressions = parseInt(insight.impressions) || 0;
       const cpc = insight?.cpc ? parseFloat(insight.cpc) : 0;
       const ctr = insight?.ctr ? parseFloat(insight.ctr) : 0;
       
@@ -494,13 +529,9 @@ export async function syncFacebookData(): Promise<{
       // Calculate revenue estimate (for now, use spend * 1.5 as placeholder - adjust based on your payout model)
       const revenue = conversions > 0 ? conversions * 50 : spend * 1.2; // Estimate
 
-      // Map Facebook status to our status
-      const status = campaign.effective_status === "ACTIVE" ? "active" : 
-                    campaign.effective_status === "PAUSED" ? "paused" : "inactive";
-
       // Store metrics in JSON field (matching existing schema)
       const metricsJson = {
-        external_id: campaign.id,
+        external_id: campaignId,
         spend: spend,
         clicks: clicks,
         impressions: impressions,
@@ -508,8 +539,76 @@ export async function syncFacebookData(): Promise<{
         revenue: revenue,
         cpc: cpc,
         ctr: ctr,
+        effective_status: campaign?.effective_status || "UNKNOWN",
+      };
+
+      console.log(`📊 Campaign "${campaignName}" metrics:`, JSON.stringify(metricsJson, null, 2));
+
+      // Check if campaign exists by external_id in metrics JSON
+      const existingCampaign = await prisma.campaigns.findFirst({
+        where: {
+          user_id: dbUser.id,
+          platform: "facebook",
+          metrics: {
+            path: ["external_id"],
+            equals: campaignId,
+          },
+        },
+      });
+
+      if (existingCampaign) {
+        console.log(`🔄 Updating existing campaign: ${existingCampaign.id}`);
+        // Update existing campaign
+        await prisma.campaigns.update({
+          where: { id: existingCampaign.id },
+          data: {
+            campaign_name: campaignName,
+            status: status,
+            metrics: metricsJson,
+            updated_at: new Date(),
+          },
+        });
+      } else {
+        console.log(`➕ Creating new campaign: ${campaignName}`);
+        // Create new campaign
+        await prisma.campaigns.create({
+          data: {
+            user_id: dbUser.id,
+            campaign_name: campaignName,
+            platform: "facebook",
+            status: status,
+            metrics: metricsJson,
+          },
+        });
+      }
+
+      syncedCount++;
+    }
+
+    // Then, process campaigns that don't have insights (new campaigns)
+    for (const campaign of campaigns) {
+      // Skip if we already processed this campaign from insights
+      if (insightsMap.has(campaign.id)) {
+        continue;
+      }
+      
+      const status = campaign.effective_status === "ACTIVE" ? "active" : 
+                    campaign.effective_status === "PAUSED" ? "paused" : "inactive";
+
+      // Store metrics in JSON field (matching existing schema)
+      const metricsJson = {
+        external_id: campaign.id,
+        spend: 0,
+        clicks: 0,
+        impressions: 0,
+        conversions: 0,
+        revenue: 0,
+        cpc: 0,
+        ctr: 0,
         effective_status: campaign.effective_status,
       };
+
+      console.log(`📊 Campaign "${campaign.name}" (no insights):`, JSON.stringify(metricsJson, null, 2));
 
       // Check if campaign exists by external_id in metrics JSON
       const existingCampaign = await prisma.campaigns.findFirst({
@@ -524,6 +623,7 @@ export async function syncFacebookData(): Promise<{
       });
 
       if (existingCampaign) {
+        console.log(`🔄 Updating existing campaign: ${existingCampaign.id}`);
         // Update existing campaign
         await prisma.campaigns.update({
           where: { id: existingCampaign.id },
@@ -535,6 +635,7 @@ export async function syncFacebookData(): Promise<{
           },
         });
       } else {
+        console.log(`➕ Creating new campaign: ${campaign.name}`);
         // Create new campaign
         await prisma.campaigns.create({
           data: {

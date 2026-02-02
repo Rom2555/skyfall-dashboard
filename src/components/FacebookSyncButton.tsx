@@ -3,61 +3,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, CheckCircle, XCircle, Facebook } from "lucide-react";
-import { triggerFacebookSync, checkSyncStatus, SyncResult } from "@/app/actions/sync-facebook";
+import { Loader2, CheckCircle, XCircle, Facebook } from "lucide-react";
+import { triggerFacebookSync, SyncResult } from "@/app/actions/sync-facebook";
 
-type SyncStatus = "idle" | "triggering" | "processing" | "completed" | "failed";
+type SyncStatus = "idle" | "triggering" | "completed" | "failed";
 
 export function FacebookSyncButton() {
   const router = useRouter();
   const [status, setStatus] = useState<SyncStatus>("idle");
-  const [runId, setRunId] = useState<string | null>(null);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // Polling for task status
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    let attempts = 0;
-    const maxAttempts = 60; // 2 minutes max
-
-    if (runId && status === "processing") {
-      interval = setInterval(async () => {
-        attempts++;
-
-        if (attempts > maxAttempts) {
-          setStatus("failed");
-          setError("Timeout - синхронизация заняла слишком много времени");
-          clearInterval(interval);
-          return;
-        }
-
-        try {
-          const taskStatus = await checkSyncStatus(runId);
-          console.log(`🔄 Checking status (attempt ${attempts}):`, taskStatus.status);
-
-          if (taskStatus.status === "COMPLETED") {
-            setStatus("completed");
-            setResult({
-              success: true,
-              ...taskStatus.output,
-            });
-            clearInterval(interval);
-            // Refresh the page to show new data
-            router.refresh();
-          } else if (taskStatus.status === "FAILED") {
-            setStatus("failed");
-            setError("Ошибка синхронизации с Facebook");
-            clearInterval(interval);
-          }
-        } catch (e) {
-          console.error("Polling error:", e);
-        }
-      }, 2000);
-    }
-
-    return () => clearInterval(interval);
-  }, [runId, status, router]);
 
   const handleSync = useCallback(async () => {
     setStatus("triggering");
@@ -67,10 +22,12 @@ export function FacebookSyncButton() {
     try {
       const response = await triggerFacebookSync();
 
-      if (response.success && response.runId) {
-        setRunId(response.runId);
-        setStatus("processing");
-        console.log("✅ Task started, waiting for completion...");
+      if (response.success) {
+        setStatus("completed");
+        setResult(response);
+        console.log("✅ Sync completed:", response);
+        // Refresh the page to show new data
+        router.refresh();
       } else {
         setStatus("failed");
         setError(response.error || "Не удалось запустить синхронизацию");
@@ -80,7 +37,7 @@ export function FacebookSyncButton() {
       setStatus("failed");
       setError(e instanceof Error ? e.message : "Ошибка сети");
     }
-  }, []);
+  }, [router]);
 
   // Auto-reset status after showing result
   useEffect(() => {
@@ -92,7 +49,7 @@ export function FacebookSyncButton() {
     }
   }, [status]);
 
-  const isLoading = status === "triggering" || status === "processing";
+  const isLoading = status === "triggering";
 
   return (
     <div className="flex items-center gap-3">
@@ -116,13 +73,7 @@ export function FacebookSyncButton() {
         {status === "triggering" && (
           <>
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            Запуск...
-          </>
-        )}
-        {status === "processing" && (
-          <>
-            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-            Синхронизация с FB...
+            Синхронизация...
           </>
         )}
         {status === "completed" && (
@@ -142,7 +93,7 @@ export function FacebookSyncButton() {
       {/* Result info */}
       {status === "completed" && result && (
         <span className="text-sm text-green-600 animate-fade-in">
-          +{result.createdCount || 0} новых, {result.updatedCount || 0} обновлено
+          {result.syncedCount || 0} кампаний синхронизировано
         </span>
       )}
 

@@ -1,36 +1,201 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](T
+Skyfall Dashboard
+Предварительные требования
+Node.js
 
-## Getting Started
+npm (устанавливается с Node.js)
 
-First, run the development server:
+PostgreSQL (версия 14 или выше) - Скачать
 
-```bash
+🚀 Быстрый старт
+1. Клонирование репозитория
+bash
+git clone https://github.com/ваш-username/skyfall-dashboard.git
+cd skyfall-dashboard
+2. Установка зависимостей
+bash
+npm install
+3. Настройка переменных окружения
+Скопируйте файл .env.example в .env:
+
+bash
+cp .env.example .env
+Откройте .env и заполните необходимые значения:
+
+text
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=ваш_publishable_key
+CLERK_SECRET_KEY=ваш_secret_key
+
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/skyfall
+
+# Facebook App (опционально)
+FACEBOOK_APP_ID=ваш_facebook_app_id
+FACEBOOK_APP_SECRET=ваш_facebook_app_secret
+
+# Trigger.dev (опционально)
+TRIGGER_API_KEY=ваш_trigger_key
+TRIGGER_SECRET_KEY=ваш_trigger_secret
+
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+4. Настройка PostgreSQL
+Установите PostgreSQL с официального сайта https://www.postgresql.org/download/ и создайте базу данных:
+
+sql
+CREATE DATABASE skyfall;
+5. Применение миграций базы данных
+bash
+# Генерация Prisma Client
+npx prisma generate
+
+# Применение миграций
+npx prisma migrate dev
+
+# (Опционально) Заполнение базы тестовыми данными
+npx prisma db seed
+6. Запуск сервера разработки
+bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Приложение будет доступно по адресу http://localhost:3000
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+🔑 Получение API ключей
+Clerk (Аутентификация)
+Перейдите на https://dashboard.clerk.com/
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Создайте новый проект или выберите существующий
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+В разделе "API Keys", скопируйте:
 
-## Learn More
+Publishable Key → NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 
-To learn more about Next.js, take a look at the following resources:
+Secret Key → CLERK_SECRET_KEY
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Настройте URL-адреса для входа/регистрации в настройках Clerk
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Facebook Ads API
+Перейдите на https://developers.facebook.com/
 
-## Deploy on Vercel
+Создайте новое приложение
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+В настройках приложения добавьте продукт "Marketing API", 4.0, 4.0
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Скопируйте:
+
+App ID → FACEBOOK_APP_ID
+
+App Secret → FACEBOOK_APP_SECRET
+
+Настройте Redirect URI: http://localhost:3000/api/auth/callback/facebook
+
+Trigger.dev (Опционально)
+Перейдите на https://trigger.dev/
+
+Создайте новый проект
+
+Скопируйте API ключи в .env
+
+🛠 Доступные команды
+bash
+# Запуск сервера разработки
+npm run dev
+
+# Сборка для продакшена
+npm run build
+
+# Запуск продакшн-сервера
+npm start
+
+# Линтинг кода
+npm run lint
+
+# Генерация Prisma Client
+npx prisma generate
+
+# Применение миграций
+npx prisma migrate dev
+
+# Просмотр базы данных в браузере
+npx prisma studio
+
+# Сброс базы данных (осторожно!)
+npx prisma migrate reset
+📁 Структура проекта
+text
+skyfall-dashboard/
+├── prisma/
+│   ├── schema.prisma          # Схема базы данных
+│   ├── migrations/            # Миграции базы данных
+│   └── seed.ts                # Начальные данные
+├── src/
+│   ├── app/                   # Next.js App Router
+│   ├── components/            # React компоненты
+│   └── lib/                   # Утилиты и хелперы
+├── public/                    # Статические файлы
+├── .env.example               # Пример переменных окружения
+├── package.json               # Зависимости проекта
+└── README.md                  # Этот файл
+🗄 Модели базы данных
+Проект использует следующие основные модели:
+
+users - Пользователи системы
+
+tenants - Организации/клиенты
+
+campaigns - Рекламные кампании
+
+metrics_daily - Ежедневные метрики кампаний
+
+ad_accounts - Рекламные аккаунты
+
+ai_recommendations - AI рекомендации
+
+predictions - Прогнозы эффективности
+
+🛠 Troubleshooting
+Ошибка подключения к базе данных
+Убедитесь, что PostgreSQL запущен и параметры подключения в .env верны:
+
+bash
+# Проверка подключения PostgreSQL
+psql -U postgres -d skyfall -h localhost
+Ошибка Prisma Client
+Перегенерируйте Prisma Client:
+
+bash
+npx prisma generate
+Проблемы с миграциями
+Если миграции не применяются, попробуйте сбросить базу данных:
+
+bash
+npx prisma migrate reset
+Ошибки Clerk
+Проверьте, что ключи Clerk правильно скопированы в .env и приложение настроено с правильными URL-адресами.
+
+🚀 Развертывание
+Vercel (рекомендуется)
+Подключите репозиторий к Vercel
+
+Добавьте переменные окружения в настройках проекта
+
+Разверните проект
+
+Другие платформы
+Для развертывания на других платформах убедитесь, что:
+
+Установлены все зависимости (npm install)
+
+Выполнена сборка (npm run build)
+
+Настроена база данных PostgreSQL
+
+Добавлены все переменные окружения
+
+📜 Лицензия
+Этот проект распространяется под лицензией MIT.
+
+🤝 Вклад
+Вклады приветствуются! Пожалуйста, создавайте issue или pull request для любых улучшений.
+
+📞 Поддержка
+Если у вас возникли вопросы или проблемы, пожалуйста, создавайте issue в репозитории GitHub.
