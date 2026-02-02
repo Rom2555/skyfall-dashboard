@@ -1,0 +1,250 @@
+// SOURCE OF TRUTH - Edit this file, then run `npm run db:sync` to propagate changes.
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ad_accounts {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String?   @db.Uuid
+  platform            String
+  external_account_id String
+  status              String    @default("active")
+  connected_at        DateTime? @default(now()) @db.Timestamptz(6)
+  tenants             tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ai_recommendations {
+  id           BigInt    @id @default(autoincrement())
+  tenant_id    String?   @db.Uuid
+  platform     String?
+  entity_type  String?
+  entity_id    String?
+  date_hour    DateTime? @db.Timestamptz(6)
+  summary      String?
+  actions_json Json?
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  tenants      tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model api_keys {
+  id            Int       @id @default(autoincrement())
+  chat_id       BigInt
+  api_key       String
+  platform      String?   @default("unknown")
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  ad_account_id String?
+}
+
+model campaign_stats {
+  id               Int       @id @default(autoincrement())
+  campaign_name    String?
+  spend            Decimal?  @db.Decimal
+  revenue          Decimal?  @db.Decimal
+  clicks           Int?
+  conversions      Int?
+  ai_roi_calc      Decimal?  @db.Decimal
+  ai_advice        String?
+  last_analyzed_at DateTime? @db.Timestamp(6)
+}
+
+model campaigns {
+  id            Int       @id @default(autoincrement())
+  user_id       String?   @db.VarChar(255)
+  campaign_name String?   @db.VarChar(255)
+  platform      String?   @db.VarChar(50)
+  status        String?   @db.VarChar(50)
+  budget        Decimal?  @db.Decimal(10, 2)
+  metrics       Json?
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
+  users         users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_campaigns_user_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model metrics_daily {
+  id               BigInt    @id @default(autoincrement())
+  tenant_id        String?   @db.Uuid
+  platform         String?
+  account_id       String?
+  campaign_id      String?
+  adset_id         String?
+  ad_id            String?
+  date             DateTime? @db.Date
+  impressions      Int?
+  clicks           Int?
+  spend            Decimal?  @db.Decimal
+  ctr              Decimal?  @db.Decimal
+  cpc              Decimal?  @db.Decimal
+  cpm              Decimal?  @db.Decimal
+  conversions      Int?
+  revenue          Decimal?  @db.Decimal
+  geo              String?
+  device           String?
+  os               String?
+  placement        String?
+  objective        String?
+  bid_strategy     String?
+  ad_format        String?
+  creative_len_sec Int?
+  ai_roi_calc      Decimal?  @db.Decimal
+  ai_advice        String?
+  tenants          tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id, date], map: "idx_md_tenant_date")
+  @@index([tenant_id, platform, account_id, date], map: "idx_md_tenant_platform_account_date")
+}
+
+model ml_reports {
+  id               Int       @id @default(autoincrement())
+  user_id          String?   @db.VarChar(255)
+  report_name      String?   @db.VarChar(255)
+  insights         String[]
+  recommendations  String[]
+  confidence_score Decimal?  @db.Decimal(3, 2)
+  created_at       DateTime? @default(now()) @db.Timestamp(6)
+  users            users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model policy_actions {
+  id            BigInt    @id @default(autoincrement())
+  tenant_id     String?   @db.Uuid
+  platform      String?
+  entity_type   String?
+  entity_id     String?
+  action        String?
+  params_json   Json?
+  reason        String?
+  prediction_id BigInt?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  status        String?
+  error_text    String?
+  tenants       tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model predictions {
+  id            BigInt    @id @default(autoincrement())
+  tenant_id     String?   @db.Uuid
+  platform      String?
+  entity_type   String?
+  entity_id     String?
+  date_hour     DateTime? @db.Timestamptz(6)
+  prob_profit   Decimal?  @db.Decimal
+  pred_roi      Decimal?  @db.Decimal
+  model_version String?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  tenants       tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id, date_hour], map: "idx_preds_tenant_time")
+}
+
+model project_settings {
+  id                  Int       @id @default(autoincrement())
+  project_name        String
+  vertical            String
+  geo                 String
+  target_cpa          Decimal?  @db.Decimal(10, 2)
+  min_conversion_rate Decimal?  @db.Decimal(5, 2)
+  ad_account_id       String?
+  telegram_chat_id    String?
+  is_active           Boolean?  @default(true)
+  created_at          DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model report_cache {
+  tenant_id   String    @db.Uuid
+  report_type String
+  param_hash  String
+  ttl_until   DateTime? @db.Timestamptz(6)
+  payload     Json?
+
+  @@id([tenant_id, report_type, param_hash])
+}
+
+model settings {
+  id                     Int       @id @default(autoincrement())
+  user_id                String?   @db.VarChar(255)
+  traffic_source         String?   @db.VarChar(50)
+  traffic_source_api_key String?
+  vertical               String?   @db.VarChar(50)
+  geo                    String?   @db.VarChar(10)
+  affiliate_network      String?   @db.VarChar(50)
+  affiliate_api_key      String?
+  created_at             DateTime? @default(now()) @db.Timestamp(6)
+  updated_at             DateTime? @default(now()) @db.Timestamp(6)
+  users                  users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_settings_user_id")
+}
+
+model telegram_users {
+  id         Int       @id @default(autoincrement())
+  chat_id    BigInt    @unique
+  username   String?
+  fb_token   String?
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model tenant_quotas {
+  tenant_id              String    @id @db.Uuid
+  plan                   String?
+  llm_tokens_day         Int?
+  llm_tokens_total       Int?
+  predictions_day        Int?
+  cooldown_minutes       Int?
+  vertex_batch_every_min Int?
+  valid_until            DateTime? @db.Timestamptz(6)
+  tenants                tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model tenants {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String
+  plan               String               @default("trial")
+  created_at         DateTime?            @default(now()) @db.Timestamptz(6)
+  ad_accounts        ad_accounts[]
+  ai_recommendations ai_recommendations[]
+  metrics_daily      metrics_daily[]
+  policy_actions     policy_actions[]
+  predictions        predictions[]
+  tenant_quotas      tenant_quotas?
+  usage_ledger       usage_ledger[]
+}
+
+model usage_ledger {
+  id        BigInt    @id @default(autoincrement())
+  tenant_id String?   @db.Uuid
+  kind      String?
+  amount    Int?
+  ts        DateTime? @default(now()) @db.Timestamptz(6)
+  tenants   tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model users {
+  id                       String       @id @db.VarChar(255)
+  email                    String       @unique @db.VarChar(255)
+  password_hash            String?      @db.VarChar(255)
+  clerk_id                 String?      @unique @db.VarChar(255)
+  is_onboarding_completed  Boolean      @default(false)
+  created_at               DateTime?    @default(now()) @db.Timestamp(6)
+  updated_at               DateTime?    @default(now()) @db.Timestamp(6)
+  ip_address               String?      @db.VarChar(45)
+  campaigns                campaigns[]
+  ml_reports               ml_reports[]
+  settings                 settings[]
+
+  @@index([created_at], map: "idx_users_created_at")
+  @@index([email], map: "idx_users_email")
+  @@index([clerk_id], map: "idx_users_clerk_id")
+}
